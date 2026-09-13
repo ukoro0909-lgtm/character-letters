@@ -1148,13 +1148,13 @@ textarea,input{font-family:inherit;}
     }
   }
 
-  function speak(text, onEnd){
+  function speak(text, onEnd, styleHint){
     var serverUrl = getServerUrl();
     if(!serverUrl){ speakWithBrowser(text, onEnd); return; }
     fetch(serverUrl + "/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text })
+      body: JSON.stringify({ text: text, styleHint: styleHint || "" })
     }).then(function(res){
       if(!res.ok){
         return res.text().then(function(body){
@@ -1373,7 +1373,7 @@ textarea,input{font-family:inherit;}
           setTalking(true, lastSeal);
           speak(result.text, function(){
             if(sendingId === activeId) setTalking(false, lastSeal);
-          });
+          }, character.speech);
         }else{
           setTalking(false, null);
         }
