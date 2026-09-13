@@ -175,6 +175,31 @@ textarea,input{font-family:inherit;}
 }
 
 /* ---------- chat header ---------- */
+.character-stage{
+  position:relative;
+  width:100%;
+  height:280px;
+  flex:none;
+  background:linear-gradient(180deg, var(--paper-raised), var(--paper-card));
+  border-bottom:0.5px solid var(--line);
+  overflow:hidden;
+}
+.character-stage canvas{
+  display:block;
+  width:100%;
+  height:100%;
+}
+.stage-loading{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--ink-faint);
+  font-size:13px;
+  pointer-events:none;
+  background:var(--paper-raised);
+}
 .chat-header{
   display:flex;
   align-items:center;
@@ -623,6 +648,11 @@ textarea,input{font-family:inherit;}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/><circle cx="5" cy="12" r="1.4"/></svg>
         </button>
       </header>
+
+      <div class="character-stage" id="characterStage">
+        <canvas id="vrmCanvas"></canvas>
+        <div class="stage-loading" id="stageLoading">キャラクターを読み込み中…</div>
+      </div>
 
       <div class="thread" id="thread" aria-live="polite">
         <div class="empty-hint" id="emptyHint" hidden>まだ会話がありません。下の欄から話しかけてみましょう。</div>
@@ -1140,8 +1170,9 @@ textarea,input{font-family:inherit;}
       var utter = new SpeechSynthesisUtterance(text);
       utter.lang = "ja-JP";
       utter.rate = 1;
-      utter.onend = function(){ onEnd && onEnd(); };
-      utter.onerror = function(){ onEnd && onEnd(); };
+      utter.onstart = function(){ if(window.vrmStage) window.vrmStage.startTalkingFallback(); };
+      utter.onend = function(){ if(window.vrmStage) window.vrmStage.stopTalking(); onEnd && onEnd(); };
+      utter.onerror = function(){ if(window.vrmStage) window.vrmStage.stopTalking(); onEnd && onEnd(); };
       window.speechSynthesis.speak(utter);
     }catch(e){
       onEnd && onEnd();
@@ -1167,13 +1198,20 @@ textarea,input{font-family:inherit;}
       stopSpeaking();
       var audio = new Audio("data:audio/mp3;base64," + data.audioContent);
       currentAudio = audio;
-      audio.onended = function(){ if(currentAudio === audio){ currentAudio = null; } onEnd && onEnd(); };
+      audio.onended = function(){
+        if(currentAudio === audio){ currentAudio = null; }
+        if(window.vrmStage) window.vrmStage.stopTalking();
+        onEnd && onEnd();
+      };
       audio.onerror = function(){
         if(currentAudio === audio){ currentAudio = null; }
+        if(window.vrmStage) window.vrmStage.stopTalking();
         appendErrorNote("[デバッグ] 音声の再生でエラーが発生したためブラウザ音声に切り替えました。");
         speakWithBrowser(text, onEnd);
       };
-      audio.play().catch(function(playErr){
+      audio.play().then(function(){
+        if(window.vrmStage) window.vrmStage.startTalkingWithAudio(audio);
+      }).catch(function(playErr){
         if(currentAudio === audio){ currentAudio = null; }
         appendErrorNote("[デバッグ] 音声のplay()が拒否されました: " + (playErr && playErr.message || playErr) + "。ブラウザ音声に切り替えました。");
         speakWithBrowser(text, onEnd);
@@ -1192,6 +1230,7 @@ textarea,input{font-family:inherit;}
     if("speechSynthesis" in window){
       try{ window.speechSynthesis.cancel(); }catch(e){}
     }
+    if(window.vrmStage) window.vrmStage.stopTalking();
   }
 
   /* ---------------- voice input (speech recognition) ---------------- */
@@ -1453,6 +1492,191 @@ textarea,input{font-family:inherit;}
   }
 
   boot();
+})();
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.5/lib/three-vrm.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+
+(function(){
+  var canvas = document.getElementById("vrmCanvas");
+  var loadingEl = document.getElementById("stageLoading");
+  if(!canvas) return;
+
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  var camera = new THREE.PerspectiveCamera(24, 1, 0.1, 20);
+  camera.position.set(0, 1.28, 0.92);
+  camera.lookAt(0, 1.32, 0);
+
+  var scene = new THREE.Scene();
+  var dirLight = new THREE.DirectionalLight(0xffffff, Math.PI * 0.7);
+  dirLight.position.set(0.6, 1.2, 1.2).normalize();
+  scene.add(dirLight);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+
+  var currentVrm = null;
+  var loader = new GLTFLoader();
+  loader.crossOrigin = "anonymous";
+  loader.register(function(parser){ return new VRMLoaderPlugin(parser); });
+
+  function resize(){
+    var w = canvas.parentElement.clientWidth;
+    var h = canvas.parentElement.clientHeight;
+    if(!w || !h) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+
+  loader.load(
+    "character.vrm",
+    function(gltf){
+      var vrm = gltf.userData.vrm;
+      try{
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.combineSkeletons(gltf.scene);
+        VRMUtils.combineMorphs(vrm);
+      }catch(e){}
+      vrm.scene.traverse(function(obj){ obj.frustumCulled = false; });
+      currentVrm = vrm;
+      scene.add(vrm.scene);
+      if(loadingEl) loadingEl.hidden = true;
+      resize();
+    },
+    undefined,
+    function(err){
+      console.error("VRM load error", err);
+      if(loadingEl) loadingEl.textContent = "3Dモデルの読み込みに失敗しました";
+    }
+  );
+
+  var blinkTimer = 0;
+  var nextBlinkAt = 2 + Math.random() * 3;
+
+  var talking = false;
+  var fallbackTalking = false;
+  var audioAnalyser = null;
+  var audioDataArray = null;
+  var sharedAudioCtx = null;
+
+  function getAudioCtx(){
+    if(sharedAudioCtx) return sharedAudioCtx;
+    try{
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      sharedAudioCtx = new Ctx();
+    }catch(e){ sharedAudioCtx = null; }
+    return sharedAudioCtx;
+  }
+
+  function startTalkingWithAudio(audioEl){
+    stopTalking();
+    talking = true;
+    try{
+      var ctx = getAudioCtx();
+      if(!ctx) throw new Error("no audio context");
+      var src = ctx.createMediaElementSource(audioEl);
+      var analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+      analyser.connect(ctx.destination);
+      audioAnalyser = analyser;
+      audioDataArray = new Uint8Array(analyser.frequencyBinCount);
+    }catch(e){
+      audioAnalyser = null;
+      audioDataArray = null;
+      fallbackTalking = true;
+    }
+  }
+  function startTalkingFallback(){
+    stopTalking();
+    talking = true;
+    fallbackTalking = true;
+  }
+  function stopTalking(){
+    talking = false;
+    fallbackTalking = false;
+    audioAnalyser = null;
+    audioDataArray = null;
+  }
+
+  window.vrmStage = {
+    startTalkingWithAudio: startTalkingWithAudio,
+    startTalkingFallback: startTalkingFallback,
+    stopTalking: stopTalking
+  };
+
+  var clock = new THREE.Clock();
+  clock.start();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    var dt = Math.min(clock.getDelta(), 0.1);
+    var t = clock.elapsedTime;
+
+    if(currentVrm){
+      if(currentVrm.humanoid){
+        var spine = currentVrm.humanoid.getNormalizedBoneNode("spine");
+        var head = currentVrm.humanoid.getNormalizedBoneNode("head");
+        var chest = currentVrm.humanoid.getNormalizedBoneNode("chest");
+        if(spine) spine.rotation.z = Math.sin(t * 1.1) * 0.015;
+        if(chest) chest.rotation.y = Math.sin(t * 0.8 + 1) * 0.015;
+        if(head){
+          head.rotation.y = Math.sin(t * 0.6) * 0.045;
+          head.rotation.x = Math.sin(t * 0.9 + 2) * 0.02;
+        }
+      }
+
+      if(currentVrm.expressionManager){
+        blinkTimer += dt;
+        var blinkValue = 0;
+        if(blinkTimer > nextBlinkAt){
+          var progress = (blinkTimer - nextBlinkAt) / 0.16;
+          if(progress < 1){
+            blinkValue = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+          }else{
+            blinkTimer = 0;
+            nextBlinkAt = 2.5 + Math.random() * 3;
+          }
+        }
+        currentVrm.expressionManager.setValue("blink", Math.max(0, Math.min(1, blinkValue)));
+
+        var mouthValue = 0;
+        if(talking){
+          if(audioAnalyser && audioDataArray){
+            audioAnalyser.getByteFrequencyData(audioDataArray);
+            var sum = 0;
+            for(var i = 0; i < audioDataArray.length; i++) sum += audioDataArray[i];
+            var avg = sum / audioDataArray.length / 255;
+            mouthValue = Math.min(1, avg * 2.4);
+          }else if(fallbackTalking){
+            mouthValue = (Math.sin(t * 14) + 1) / 2 * 0.55;
+          }
+        }
+        currentVrm.expressionManager.setValue("aa", mouthValue);
+      }
+
+      currentVrm.update(dt);
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  resize();
+  animate();
 })();
 </script>
 </body>
