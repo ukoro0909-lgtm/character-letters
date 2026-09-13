@@ -1524,6 +1524,21 @@ textarea,input{font-family:inherit;}
     openList();
   });
 
+  /* ---------------- viewport height (mobile keyboard fix) ---------------- */
+
+  function syncViewportHeight(){
+    var vv = window.visualViewport;
+    var h = vv ? vv.height : window.innerHeight;
+    el.chatScreen.style.height = h + "px";
+    if(window.vrmStage && window.vrmStage.resize) window.vrmStage.resize();
+  }
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", syncViewportHeight);
+    window.visualViewport.addEventListener("scroll", syncViewportHeight);
+  }
+  window.addEventListener("resize", syncViewportHeight);
+  syncViewportHeight();
+
   /* ---------------- boot ---------------- */
 
   function boot(){
@@ -1561,9 +1576,63 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
   var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
-  var camera = new THREE.PerspectiveCamera(24, 1, 0.1, 20);
-  camera.position.set(0, 1.28, 0.92);
-  camera.lookAt(0, 1.32, 0);
+  var camera = new THREE.PerspectiveCamera(26, 1, 0.1, 20);
+  var cameraTarget = new THREE.Vector3(0, 1.24, 0);
+  var baseCameraOffset = new THREE.Vector3(0, -0.06, 1.55);
+  var ZOOM_STORAGE_KEY = "letters_camera_zoom_v1";
+  var zoomFactor = 1;
+  try{
+    var storedZoom = parseFloat(localStorage.getItem(ZOOM_STORAGE_KEY));
+    if(!isNaN(storedZoom)) zoomFactor = Math.max(0.5, Math.min(2.2, storedZoom));
+  }catch(e){}
+
+  function saveZoomPreference(){
+    try{ localStorage.setItem(ZOOM_STORAGE_KEY, String(zoomFactor)); }catch(e){}
+  }
+
+  function applyCameraZoom(){
+    var dir = baseCameraOffset.clone();
+    var dist = Math.max(0.45, Math.min(3.4, dir.length() * zoomFactor));
+    dir.setLength(dist);
+    camera.position.copy(cameraTarget).add(dir);
+    camera.lookAt(cameraTarget);
+  }
+  applyCameraZoom();
+
+  var pinchStartDist = null;
+  var zoomAtPinchStart = zoomFactor;
+  function touchDistance(touches){
+    var dx = touches[0].clientX - touches[1].clientX;
+    var dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  canvas.addEventListener("touchstart", function(e){
+    if(e.touches.length === 2){
+      pinchStartDist = touchDistance(e.touches);
+      zoomAtPinchStart = zoomFactor;
+    }
+  }, { passive: true });
+  canvas.addEventListener("touchmove", function(e){
+    if(e.touches.length === 2 && pinchStartDist){
+      e.preventDefault();
+      var newDist = touchDistance(e.touches);
+      var ratio = pinchStartDist / newDist;
+      zoomFactor = Math.max(0.5, Math.min(2.2, zoomAtPinchStart * ratio));
+      applyCameraZoom();
+    }
+  }, { passive: false });
+  canvas.addEventListener("touchend", function(e){
+    if(e.touches.length < 2){
+      pinchStartDist = null;
+      saveZoomPreference();
+    }
+  });
+  canvas.addEventListener("wheel", function(e){
+    e.preventDefault();
+    zoomFactor = Math.max(0.5, Math.min(2.2, zoomFactor * (e.deltaY > 0 ? 1.07 : 0.93)));
+    applyCameraZoom();
+    saveZoomPreference();
+  }, { passive: false });
 
   var scene = new THREE.Scene();
   var dirLight = new THREE.DirectionalLight(0xffffff, Math.PI * 0.7);
@@ -1654,7 +1723,7 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
   var lookAtAway = new THREE.Object3D();
   scene.add(lookAtAway);
   var awayTimer = 0;
-  var nextAwayAt = 5 + Math.random() * 6;
+  var nextAwayAt = 3 + Math.random() * 4;
   var awayDuration = 0;
   var lookingAway = false;
 
@@ -1754,7 +1823,8 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
     startTalkingWithAudio: startTalkingWithAudio,
     startTalkingFallback: startTalkingFallback,
     stopTalking: stopTalking,
-    setEmotion: setEmotion
+    setEmotion: setEmotion,
+    resize: resize
   };
 
   var clock = new THREE.Clock();
@@ -1790,12 +1860,15 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
     awayTimer += dt;
     if(!lookingAway && awayTimer > nextAwayAt){
       lookingAway = true;
-      awayDuration = 1.1 + Math.random() * 1.1;
-      lookAtAway.position.set(
-        (Math.random() - 0.5) * 1.4,
-        1.15 + Math.random() * 0.5,
-        0.7 + Math.random() * 0.4
-      );
+      awayDuration = 1.3 + Math.random() * 1.3;
+      var glanceKind = Math.floor(Math.random() * 3);
+      if(glanceKind === 0){
+        lookAtAway.position.set((Math.random() < 0.5 ? -1 : 1) * (1.1 + Math.random() * 0.5), 1.3 + Math.random() * 0.2, 0.3 + Math.random() * 0.3);
+      }else if(glanceKind === 1){
+        lookAtAway.position.set((Math.random() - 0.5) * 0.5, 0.55 + Math.random() * 0.25, 0.35 + Math.random() * 0.2);
+      }else{
+        lookAtAway.position.set((Math.random() - 0.5) * 1.0, 1.9 + Math.random() * 0.3, 0.4 + Math.random() * 0.3);
+      }
       if(currentVrm && currentVrm.lookAt) currentVrm.lookAt.target = lookAtAway;
     }
     if(lookingAway){
@@ -1803,7 +1876,7 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
       if(awayDuration <= 0){
         lookingAway = false;
         awayTimer = 0;
-        nextAwayAt = 6 + Math.random() * 8;
+        nextAwayAt = 4 + Math.random() * 5;
         if(currentVrm && currentVrm.lookAt) currentVrm.lookAt.target = lookAtViewer;
       }
     }
