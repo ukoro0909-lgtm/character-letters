@@ -1590,14 +1590,48 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
     try{ localStorage.setItem(ZOOM_STORAGE_KEY, String(zoomFactor)); }catch(e){}
   }
 
+  var ORBIT_STORAGE_KEY = "letters_camera_orbit_v1";
+  var ORBIT_AZ_LIMIT = 0.9;
+  var ORBIT_EL_LIMIT = 0.32;
+  var orbitAzimuth = 0;
+  var orbitElevation = 0;
+  try{
+    var storedOrbit = JSON.parse(localStorage.getItem(ORBIT_STORAGE_KEY));
+    if(storedOrbit && typeof storedOrbit.az === "number") orbitAzimuth = Math.max(-ORBIT_AZ_LIMIT, Math.min(ORBIT_AZ_LIMIT, storedOrbit.az));
+    if(storedOrbit && typeof storedOrbit.el === "number") orbitElevation = Math.max(-ORBIT_EL_LIMIT, Math.min(ORBIT_EL_LIMIT, storedOrbit.el));
+  }catch(e){}
+  function saveOrbitPreference(){
+    try{ localStorage.setItem(ORBIT_STORAGE_KEY, JSON.stringify({ az: orbitAzimuth, el: orbitElevation })); }catch(e){}
+  }
+
+  var baseDist0 = baseCameraOffset.length();
+  var basePolar0 = Math.acos(baseCameraOffset.y / baseDist0);
+  var baseAz0 = Math.atan2(baseCameraOffset.x, baseCameraOffset.z);
+
   function applyCameraZoom(){
-    var dir = baseCameraOffset.clone();
-    var dist = Math.max(0.45, Math.min(3.4, dir.length() * zoomFactor));
-    dir.setLength(dist);
-    camera.position.copy(cameraTarget).add(dir);
+    var dist = Math.max(0.45, Math.min(3.4, baseDist0 * zoomFactor));
+    var polar = Math.max(basePolar0 - ORBIT_EL_LIMIT, Math.min(basePolar0 + ORBIT_EL_LIMIT, basePolar0 - orbitElevation));
+    var az = baseAz0 + orbitAzimuth;
+    var sinPolar = Math.sin(polar);
+    camera.position.set(
+      cameraTarget.x + dist * sinPolar * Math.sin(az),
+      cameraTarget.y + dist * Math.cos(polar),
+      cameraTarget.z + dist * sinPolar * Math.cos(az)
+    );
     camera.lookAt(cameraTarget);
   }
   applyCameraZoom();
+
+  function triggerTapReaction(){
+    reactionEmotion = "surprised";
+    reactionUntil = clock.elapsedTime + 0.9;
+  }
+
+  function orbitDrag(dx, dy){
+    orbitAzimuth = Math.max(-ORBIT_AZ_LIMIT, Math.min(ORBIT_AZ_LIMIT, orbitAzimuth + dx * 0.006));
+    orbitElevation = Math.max(-ORBIT_EL_LIMIT, Math.min(ORBIT_EL_LIMIT, orbitElevation + dy * 0.006));
+    applyCameraZoom();
+  }
 
   var pinchStartDist = null;
   var zoomAtPinchStart = zoomFactor;
@@ -1606,10 +1640,26 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
     var dy = touches[0].clientY - touches[1].clientY;
     return Math.sqrt(dx * dx + dy * dy);
   }
+
+  var dragActive = false;
+  var dragMoved = false;
+  var dragStartX = 0, dragStartY = 0;
+  var dragLastX = 0, dragLastY = 0;
+  var dragStartTime = 0;
+  var TAP_MOVE_THRESHOLD = 12;
+  var TAP_MAX_DURATION = 350;
+
   canvas.addEventListener("touchstart", function(e){
     if(e.touches.length === 2){
+      dragActive = false;
       pinchStartDist = touchDistance(e.touches);
       zoomAtPinchStart = zoomFactor;
+    }else if(e.touches.length === 1){
+      dragActive = true;
+      dragMoved = false;
+      dragStartX = dragLastX = e.touches[0].clientX;
+      dragStartY = dragLastY = e.touches[0].clientY;
+      dragStartTime = performance.now();
     }
   }, { passive: true });
   canvas.addEventListener("touchmove", function(e){
@@ -1619,6 +1669,12 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
       var ratio = pinchStartDist / newDist;
       zoomFactor = Math.max(0.5, Math.min(2.2, zoomAtPinchStart * ratio));
       applyCameraZoom();
+    }else if(e.touches.length === 1 && dragActive){
+      e.preventDefault();
+      var x = e.touches[0].clientX, y = e.touches[0].clientY;
+      if(Math.abs(x - dragStartX) > TAP_MOVE_THRESHOLD || Math.abs(y - dragStartY) > TAP_MOVE_THRESHOLD) dragMoved = true;
+      orbitDrag(x - dragLastX, y - dragLastY);
+      dragLastX = x; dragLastY = y;
     }
   }, { passive: false });
   canvas.addEventListener("touchend", function(e){
@@ -1626,7 +1682,36 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
       pinchStartDist = null;
       saveZoomPreference();
     }
+    if(e.touches.length === 0){
+      if(dragActive && !dragMoved && (performance.now() - dragStartTime) < TAP_MAX_DURATION){
+        triggerTapReaction();
+      }
+      dragActive = false;
+      saveOrbitPreference();
+    }
   });
+
+  var mouseDragging = false;
+  canvas.addEventListener("mousedown", function(e){
+    mouseDragging = true;
+    dragMoved = false;
+    dragStartX = dragLastX = e.clientX;
+    dragStartY = dragLastY = e.clientY;
+    dragStartTime = performance.now();
+  });
+  window.addEventListener("mousemove", function(e){
+    if(!mouseDragging) return;
+    if(Math.abs(e.clientX - dragStartX) > TAP_MOVE_THRESHOLD || Math.abs(e.clientY - dragStartY) > TAP_MOVE_THRESHOLD) dragMoved = true;
+    orbitDrag(e.clientX - dragLastX, e.clientY - dragLastY);
+    dragLastX = e.clientX; dragLastY = e.clientY;
+  });
+  window.addEventListener("mouseup", function(){
+    if(!mouseDragging) return;
+    if(!dragMoved) triggerTapReaction();
+    mouseDragging = false;
+    saveOrbitPreference();
+  });
+
   canvas.addEventListener("wheel", function(e){
     e.preventDefault();
     zoomFactor = Math.max(0.5, Math.min(2.2, zoomFactor * (e.deltaY > 0 ? 1.07 : 0.93)));
@@ -1727,6 +1812,14 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
   var awayDuration = 0;
   var lookingAway = false;
 
+  var gestureTimer = 0;
+  var nextGestureAt = 5 + Math.random() * 5;
+  var gestureActive = false;
+  var gestureDuration = 0;
+  var gestureBlend = 0;
+  var gestureBlendTarget = 0;
+  var gestureKind = 0;
+
   function resize(){
     var w = canvas.parentElement.clientWidth;
     var h = canvas.parentElement.clientHeight;
@@ -1814,6 +1907,8 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
   var EMOTION_NAMES = ["happy", "sad", "angry", "relaxed", "surprised"];
   var EMOTION_INTENSITY = 0.85;
   var currentEmotion = "neutral";
+  var reactionEmotion = null;
+  var reactionUntil = 0;
 
   function setEmotion(emotion){
     currentEmotion = EMOTION_NAMES.indexOf(emotion) !== -1 ? emotion : "neutral";
@@ -1881,6 +1976,25 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
       }
     }
 
+    // occasional hand gesture
+    gestureTimer += dt;
+    if(!gestureActive && gestureTimer > nextGestureAt){
+      gestureActive = true;
+      gestureKind = Math.floor(Math.random() * 2);
+      gestureDuration = 2.4 + Math.random() * 1.8;
+      gestureBlendTarget = 1;
+    }
+    if(gestureActive){
+      gestureDuration -= dt;
+      if(gestureDuration <= 0){
+        gestureActive = false;
+        gestureBlendTarget = 0;
+        gestureTimer = 0;
+        nextGestureAt = 8 + Math.random() * 8;
+      }
+    }
+    gestureBlend += (gestureBlendTarget - gestureBlend) * Math.min(1, dt * 3.5);
+
     if(currentVrm){
       if(currentVrm.humanoid){
         var swayMul = talking ? 1.7 : 1;
@@ -1893,14 +2007,33 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
         }
         if(currentVrm._posed !== true){
           var leftUpperArm = currentVrm.humanoid.getNormalizedBoneNode("leftUpperArm");
-          var rightUpperArm = currentVrm.humanoid.getNormalizedBoneNode("rightUpperArm");
           var leftLowerArm = currentVrm.humanoid.getNormalizedBoneNode("leftLowerArm");
-          var rightLowerArm = currentVrm.humanoid.getNormalizedBoneNode("rightLowerArm");
           if(leftUpperArm) leftUpperArm.rotation.z = -1.2;
-          if(rightUpperArm) rightUpperArm.rotation.z = 1.2;
           if(leftLowerArm) leftLowerArm.rotation.z = -0.15;
-          if(rightLowerArm) rightLowerArm.rotation.z = 0.15;
           currentVrm._posed = true;
+        }
+
+        var rightUpperArm = currentVrm.humanoid.getNormalizedBoneNode("rightUpperArm");
+        var rightLowerArm = currentVrm.humanoid.getNormalizedBoneNode("rightLowerArm");
+        var gb = gestureBlend;
+        if(gestureKind === 0){
+          // hand resting on hip, confident pose
+          if(rightUpperArm){
+            rightUpperArm.rotation.z = 1.2 + (0.95 - 1.2) * gb;
+            rightUpperArm.rotation.x = 0 + 0.15 * gb;
+          }
+          if(rightLowerArm){
+            rightLowerArm.rotation.x = 0 + (-1.3) * gb;
+          }
+        }else{
+          // hand near chest, as if gesturing while speaking
+          if(rightUpperArm){
+            rightUpperArm.rotation.z = 1.2 + (0.85 - 1.2) * gb;
+            rightUpperArm.rotation.x = 0 + (-0.15) * gb + Math.sin(t * 2.2) * 0.04 * gb;
+          }
+          if(rightLowerArm){
+            rightLowerArm.rotation.x = 0 + (-1.75) * gb;
+          }
         }
       }
 
@@ -1919,9 +2052,11 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
         currentVrm.expressionManager.setValue("blink", Math.max(0, Math.min(1, blinkValue)));
         currentVrm.expressionManager.setValue("aa", mouthValue);
 
+        if(reactionEmotion && t >= reactionUntil) reactionEmotion = null;
+        var effectiveEmotion = reactionEmotion || currentEmotion;
         for(var e = 0; e < EMOTION_NAMES.length; e++){
           var name = EMOTION_NAMES[e];
-          var target = (name === currentEmotion) ? EMOTION_INTENSITY : 0;
+          var target = (name === effectiveEmotion) ? EMOTION_INTENSITY : 0;
           var cur = 0;
           try{ cur = currentVrm.expressionManager.getValue(name) || 0; }catch(ex){}
           currentVrm.expressionManager.setValue(name, cur + (target - cur) * Math.min(1, dt * 3));
