@@ -512,23 +512,22 @@ textarea,input{font-family:inherit;}
 <div class="app-shell">
   <div class="notebook">
 
-    <!-- ===== api key screen ===== -->
-    <section class="setup" id="apiKeyScreen" hidden>
+    <!-- ===== server connection screen ===== -->
+    <section class="setup" id="serverScreen" hidden>
       <div class="setup-header">
         <div class="seal-mark">鍵</div>
-        <h1>APIキーを設定</h1>
-        <p>このアプリはGoogleのGemini APIを使って会話します。無料のAPIキーを取得して貼り付けてください。キーはこの端末のブラウザだけに保存され、どこにも送信されません。</p>
+        <h1>サーバーに接続</h1>
+        <p>このアプリは専用のサーバー経由でAIと会話します。あなたが用意したサーバーのURLを貼り付けてください。このURLはこの端末のブラウザだけに保存されます。</p>
       </div>
-      <div class="field" id="fieldApiKey">
-        <label for="inputApiKey">Gemini APIキー</label>
-        <input type="text" id="inputApiKey" placeholder="AIzaSy...">
-        <div class="field-error">APIキーを入力してください。</div>
-        <p class="hint"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studioでキーを取得する ↗</a></p>
+      <div class="field" id="fieldServerUrl">
+        <label for="inputServerUrl">サーバーURL</label>
+        <input type="text" id="inputServerUrl" placeholder="https://your-app.onrender.com">
+        <div class="field-error">サーバーURLを入力してください。</div>
       </div>
       <hr class="divider-stitch">
       <div class="setup-actions">
-        <button class="stamp-btn" id="saveApiKeyBtn">保存する</button>
-        <button class="ghost-btn" id="cancelApiKeyBtn" hidden>キャンセルして戻る</button>
+        <button class="stamp-btn" id="saveServerUrlBtn">保存する</button>
+        <button class="ghost-btn" id="cancelServerUrlBtn" hidden>キャンセルして戻る</button>
       </div>
     </section>
 
@@ -540,7 +539,7 @@ textarea,input{font-family:inherit;}
           <p>刻んだキャラクターたちと文通する</p>
         </div>
         <div class="list-header-actions">
-          <button class="icon-btn" id="apiKeyBtn" aria-label="APIキー設定">
+          <button class="icon-btn" id="serverBtn" aria-label="サーバー設定">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="3.2"/><path d="M10.3 12.7L19 4"/><path d="M16 7l2.5 2.5"/><path d="M13 10l2 2"/></svg>
           </button>
           <button class="icon-btn seal-icon-btn" id="addCharacterBtn" aria-label="新しいキャラクターを刻む">
@@ -673,16 +672,15 @@ textarea,input{font-family:inherit;}
   var STORAGE_CHARACTERS = "letters_characters_v1";
   var MSG_PREFIX = "letters_messages_v1_";
   var STORAGE_VOICE = "letters_voice_enabled_v1";
-  var STORAGE_API_KEY = "letters_gemini_key_v1";
-  var GEMINI_MODEL = "gemini-3.6-flash";
+  var STORAGE_SERVER_URL = "letters_server_url_v1";
 
   var el = {
-    apiKeyScreen: document.getElementById("apiKeyScreen"),
-    inputApiKey: document.getElementById("inputApiKey"),
-    fieldApiKey: document.getElementById("fieldApiKey"),
-    saveApiKeyBtn: document.getElementById("saveApiKeyBtn"),
-    cancelApiKeyBtn: document.getElementById("cancelApiKeyBtn"),
-    apiKeyBtn: document.getElementById("apiKeyBtn"),
+    serverScreen: document.getElementById("serverScreen"),
+    inputServerUrl: document.getElementById("inputServerUrl"),
+    fieldServerUrl: document.getElementById("fieldServerUrl"),
+    saveServerUrlBtn: document.getElementById("saveServerUrlBtn"),
+    cancelServerUrlBtn: document.getElementById("cancelServerUrlBtn"),
+    serverBtn: document.getElementById("serverBtn"),
 
     listScreen: document.getElementById("listScreen"),
     characterList: document.getElementById("characterList"),
@@ -776,11 +774,11 @@ textarea,input{font-family:inherit;}
     for(var i=0;i<characters.length;i++){ if(characters[i].id === id) return characters[i]; }
     return null;
   }
-  function getApiKey(){
-    try{ return localStorage.getItem(STORAGE_API_KEY) || ""; }catch(e){ return ""; }
+  function getServerUrl(){
+    try{ return (localStorage.getItem(STORAGE_SERVER_URL) || "").replace(/\/+$/, ""); }catch(e){ return ""; }
   }
-  function setApiKey(k){
-    try{ localStorage.setItem(STORAGE_API_KEY, k); }catch(e){}
+  function setServerUrl(url){
+    try{ localStorage.setItem(STORAGE_SERVER_URL, url.replace(/\/+$/, "")); }catch(e){}
   }
 
   function avatarChar(c){
@@ -798,45 +796,45 @@ textarea,input{font-family:inherit;}
   }
 
   function hideAllScreens(){
-    el.apiKeyScreen.hidden = true;
+    el.serverScreen.hidden = true;
     el.listScreen.hidden = true;
     el.setupScreen.hidden = true;
     el.chatScreen.hidden = true;
     el.sheetBackdrop.hidden = true;
   }
 
-  /* ---------------- api key screen ---------------- */
+  /* ---------------- server connection screen ---------------- */
 
-  function openApiKeyScreen(fromSettings){
+  function openServerScreen(fromSettings){
     stopSpeaking();
     stopRecognition();
     hideAllScreens();
-    el.apiKeyScreen.hidden = false;
-    el.inputApiKey.value = getApiKey();
-    el.fieldApiKey.classList.remove("has-error");
-    el.cancelApiKeyBtn.hidden = !(fromSettings && getApiKey());
-    el.inputApiKey.focus();
+    el.serverScreen.hidden = false;
+    el.inputServerUrl.value = getServerUrl();
+    el.fieldServerUrl.classList.remove("has-error");
+    el.cancelServerUrlBtn.hidden = !(fromSettings && getServerUrl());
+    el.inputServerUrl.focus();
   }
 
-  el.apiKeyBtn.addEventListener("click", function(){ openApiKeyScreen(true); });
-  el.inputApiKey.addEventListener("input", function(){
-    el.fieldApiKey.classList.remove("has-error");
+  el.serverBtn.addEventListener("click", function(){ openServerScreen(true); });
+  el.inputServerUrl.addEventListener("input", function(){
+    el.fieldServerUrl.classList.remove("has-error");
   });
-  el.saveApiKeyBtn.addEventListener("click", function(){
-    var key = el.inputApiKey.value.trim();
-    if(!key){
-      el.fieldApiKey.classList.add("has-error");
+  el.saveServerUrlBtn.addEventListener("click", function(){
+    var url = el.inputServerUrl.value.trim();
+    if(!url || !/^https?:\/\//i.test(url)){
+      el.fieldServerUrl.classList.add("has-error");
       return;
     }
-    setApiKey(key);
+    setServerUrl(url);
     openList();
   });
-  el.cancelApiKeyBtn.addEventListener("click", openList);
+  el.cancelServerUrlBtn.addEventListener("click", openList);
 
   /* ---------------- list screen ---------------- */
 
   function openList(){
-    if(!getApiKey()){ openApiKeyScreen(false); return; }
+    if(!getServerUrl()){ openServerScreen(false); return; }
     stopSpeaking();
     stopRecognition();
     hideAllScreens();
@@ -1108,7 +1106,9 @@ textarea,input{font-family:inherit;}
     }
   });
 
-  function speak(text, onEnd){
+  var currentAudio = null;
+
+  function speakWithBrowser(text, onEnd){
     if(!("speechSynthesis" in window)){ onEnd && onEnd(); return; }
     try{
       window.speechSynthesis.cancel();
@@ -1122,7 +1122,35 @@ textarea,input{font-family:inherit;}
       onEnd && onEnd();
     }
   }
+
+  function speak(text, onEnd){
+    var serverUrl = getServerUrl();
+    if(!serverUrl){ speakWithBrowser(text, onEnd); return; }
+    fetch(serverUrl + "/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text })
+    }).then(function(res){
+      if(!res.ok) throw new Error("tts_http_" + res.status);
+      return res.json();
+    }).then(function(data){
+      if(!data || !data.audioContent) throw new Error("no_audio");
+      stopSpeaking();
+      var audio = new Audio("data:audio/mp3;base64," + data.audioContent);
+      currentAudio = audio;
+      audio.onended = function(){ if(currentAudio === audio){ currentAudio = null; } onEnd && onEnd(); };
+      audio.onerror = function(){ if(currentAudio === audio){ currentAudio = null; } speakWithBrowser(text, onEnd); };
+      audio.play().catch(function(){ if(currentAudio === audio){ currentAudio = null; } speakWithBrowser(text, onEnd); });
+    }).catch(function(){
+      speakWithBrowser(text, onEnd);
+    });
+  }
+
   function stopSpeaking(){
+    if(currentAudio){
+      try{ currentAudio.pause(); }catch(e){}
+      currentAudio = null;
+    }
     if("speechSynthesis" in window){
       try{ window.speechSynthesis.cancel(); }catch(e){}
     }
@@ -1183,77 +1211,36 @@ textarea,input{font-family:inherit;}
     }
   });
 
-  /* ---------------- gemini api ---------------- */
+  /* ---------------- backend chat api ---------------- */
 
-  function buildInstruction(c){
-    var parts = [];
-    parts.push("あなたは「" + c.name + "」という名前のキャラクターです。");
-    parts.push("性格・人物像: " + c.personality);
-    if(c.speech){
-      parts.push("話し方の特徴: " + c.speech);
-    }
-    parts.push("この人格になりきってユーザーと自然に会話してください。自分がAIや言語モデルであることには一切触れず、キャラクターとして一人称で答えてください。返答は2〜4文程度の自然な会話文にし、日本語で書いてください。");
-    return parts.join("\n");
-  }
-
-  var GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
-
-  function extractOutputText(data){
-    var steps = data.steps || [];
-    var text = "";
-    for(var i=0;i<steps.length;i++){
-      var step = steps[i];
-      if(step.type !== "model_output") continue;
-      var content = step.content || [];
-      for(var j=0;j<content.length;j++){
-        if(content[j].type === "text") text += content[j].text || "";
-      }
-    }
-    return text;
-  }
-
-  function requestGemini(character, newText, previousId, signal){
-    var apiKey = getApiKey();
-    if(!apiKey){
-      return Promise.reject({ code:"no_key" });
+  function callBackendChat(character, newText, previousId, signal){
+    var serverUrl = getServerUrl();
+    if(!serverUrl){
+      return Promise.reject({ code:"no_server" });
     }
     var payload = {
-      model: GEMINI_MODEL,
-      system_instruction: buildInstruction(character),
-      input: newText,
-      generation_config: { temperature: 1 }
+      character: { name: character.name, personality: character.personality, speech: character.speech || "" },
+      input: newText
     };
     if(previousId){
-      payload.previous_interaction_id = previousId;
+      payload.previousInteractionId = previousId;
     }
-    return fetch(GEMINI_ENDPOINT, {
+    return fetch(serverUrl + "/api/chat", {
       method:"POST",
-      headers:{ "Content-Type":"application/json", "x-goog-api-key": apiKey },
+      headers:{ "Content-Type":"application/json" },
       body: JSON.stringify(payload),
       signal: signal
     }).then(function(res){
       return res.json().catch(function(){ return null; }).then(function(data){
         if(!res.ok){
-          var msg = (data && data.error && data.error.message) || "";
-          if(previousId && res.status === 400 && /interaction/i.test(msg)){
-            return Promise.reject({ code:"stale_interaction" });
-          }
-          var code = "upstream_error";
-          if(res.status === 400) code = "invalid_key_or_request";
-          else if(res.status === 403) code = "forbidden";
-          else if(res.status === 404) code = "invalid_key_or_request";
-          else if(res.status === 429) code = "rate_limited";
-          else if(res.status >= 500) code = "server_error";
-          return Promise.reject({ code: code, message: msg || ("HTTP " + res.status) });
+          var code = (data && data.error && data.error.code) || "upstream_error";
+          var msg = (data && data.error && data.error.message) || ("HTTP " + res.status);
+          return Promise.reject({ code: code, message: msg });
         }
-        if(!data){
-          return Promise.reject({ code:"parse_error" });
-        }
-        var text = extractOutputText(data);
-        if(!text){
+        if(!data || !data.text){
           return Promise.reject({ code:"empty_completion" });
         }
-        return { text: text, id: data.id || null };
+        return { text: data.text, id: data.id || null };
       });
     }, function(err){
       if(err && err.name === "AbortError"){
@@ -1263,19 +1250,11 @@ textarea,input{font-family:inherit;}
     });
   }
 
-  function callGemini(character, newText, previousId, signal){
-    return requestGemini(character, newText, previousId, signal).catch(function(err){
-      if(err && err.code === "stale_interaction"){
-        return requestGemini(character, newText, null, signal);
-      }
-      return Promise.reject(err);
-    });
-  }
-
   var ERROR_COPY = {
-    no_key: "APIキーが設定されていません。右上の鍵アイコンから設定してください。",
-    invalid_key_or_request: "APIキーが正しくないか、リクエストに問題があります。設定を確認してください。",
-    forbidden: "このAPIキーには権限がありません。Google AI Studioでキーの状態を確認してください。",
+    no_server: "サーバーが設定されていません。右上の鍵アイコンから設定してください。",
+    invalid_request: "リクエストに問題があります。もう一度お試しください。",
+    server_misconfigured: "サーバー側の設定に問題があります。管理者に確認してください。",
+    forbidden: "サーバーがAPIキーを拒否しました。サーバー側の設定を確認してください。",
     rate_limited: "利用上限に達しました。しばらく待ってからもう一度お試しください。",
     server_error: "サーバー側で問題が発生しました。もう一度お試しください。",
     parse_error: "応答の解析に失敗しました。もう一度お試しください。",
@@ -1342,7 +1321,7 @@ textarea,input{font-family:inherit;}
     var previousIdAtSend = lastInteractionId;
     var ctl = new AbortController();
 
-    callGemini(character, text, previousIdAtSend, ctl.signal).then(function(result){
+    callBackendChat(character, text, previousIdAtSend, ctl.signal).then(function(result){
       var replyMsg = { role:"assistant", content: result.text, ts: Date.now() };
       if(sendingId === activeId){
         messages.push(replyMsg);
@@ -1428,8 +1407,8 @@ textarea,input{font-family:inherit;}
 
   function boot(){
     characters = loadCharacters();
-    if(!getApiKey()){
-      openApiKeyScreen(false);
+    if(!getServerUrl()){
+      openServerScreen(false);
     }else{
       openList();
     }
