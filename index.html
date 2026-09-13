@@ -1156,17 +1156,30 @@ textarea,input{font-family:inherit;}
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: text })
     }).then(function(res){
-      if(!res.ok) throw new Error("tts_http_" + res.status);
+      if(!res.ok){
+        return res.text().then(function(body){
+          throw new Error("http_" + res.status + ": " + body.slice(0,200));
+        });
+      }
       return res.json();
     }).then(function(data){
-      if(!data || !data.audioContent) throw new Error("no_audio");
+      if(!data || !data.audioContent) throw new Error("response had no audioContent: " + JSON.stringify(data).slice(0,200));
       stopSpeaking();
       var audio = new Audio("data:audio/mp3;base64," + data.audioContent);
       currentAudio = audio;
       audio.onended = function(){ if(currentAudio === audio){ currentAudio = null; } onEnd && onEnd(); };
-      audio.onerror = function(){ if(currentAudio === audio){ currentAudio = null; } speakWithBrowser(text, onEnd); };
-      audio.play().catch(function(){ if(currentAudio === audio){ currentAudio = null; } speakWithBrowser(text, onEnd); });
-    }).catch(function(){
+      audio.onerror = function(){
+        if(currentAudio === audio){ currentAudio = null; }
+        appendErrorNote("[デバッグ] 音声の再生でエラーが発生したためブラウザ音声に切り替えました。");
+        speakWithBrowser(text, onEnd);
+      };
+      audio.play().catch(function(playErr){
+        if(currentAudio === audio){ currentAudio = null; }
+        appendErrorNote("[デバッグ] 音声のplay()が拒否されました: " + (playErr && playErr.message || playErr) + "。ブラウザ音声に切り替えました。");
+        speakWithBrowser(text, onEnd);
+      });
+    }).catch(function(err){
+      appendErrorNote("[デバッグ] サーバー音声の取得に失敗しました: " + (err && err.message || err) + "。ブラウザ音声に切り替えました。");
       speakWithBrowser(text, onEnd);
     });
   }
