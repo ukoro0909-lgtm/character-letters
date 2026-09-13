@@ -1107,6 +1107,31 @@ textarea,input{font-family:inherit;}
   });
 
   var currentAudio = null;
+  var audioUnlocked = false;
+  var SILENT_WAV = "data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQIAAAAAAA==";
+
+  function unlockAudioPlayback(){
+    if(audioUnlocked) return;
+    audioUnlocked = true;
+    try{
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if(Ctx){
+        var ctx = new Ctx();
+        var buffer = ctx.createBuffer(1, 1, 22050);
+        var source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        if(source.start) source.start(0);
+        if(ctx.resume) ctx.resume();
+      }
+    }catch(e){}
+    try{
+      var silent = new Audio(SILENT_WAV);
+      silent.play().catch(function(){});
+    }catch(e){}
+  }
+  document.addEventListener("pointerdown", unlockAudioPlayback, { once: true, capture: true });
+  document.addEventListener("touchstart", unlockAudioPlayback, { once: true, capture: true });
 
   function speakWithBrowser(text, onEnd){
     if(!("speechSynthesis" in window)){ onEnd && onEnd(); return; }
